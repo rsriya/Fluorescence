@@ -1,6 +1,6 @@
 import cutax
 import strax
-st = cutax.xenonnt_offline()
+st = cutax.xenonnt_online()
 st.storage.append(strax.DataDirectory("/project2/lgrandi/xenonnt/processed/", readonly=True))
 st.storage.append(strax.DataDirectory("/project/lgrandi/xenonnt/processed/", readonly=True))
 
@@ -88,6 +88,88 @@ width_cut = [90, 650]
 SE_data = S2_peaks.query('area < @s2_area_cut[1] and area > @s2_area_cut[0] and area_fraction_top < @aft_cut[1] and area_fraction_top > @aft_cut[0] and range_50p_area < @width_cut[1] and range_50p_area > @width_cut[0]')
 del S2_peaks
 
+def generate_powerlaw_dt(min_dt, max_dt, alpha, size):
+    """
+    Generates time differences (dt) following a power law distribution ~ dt^(-alpha).
+    
+    Args:
+        min_dt (float): The minimum value for dt (to avoid infinity).
+        max_dt (float): The maximum value for dt.
+        alpha (float): The power law exponent.
+        size (int): Number of samples to generate.
+        
+    Returns:
+        np.array: Generated time differences (dt).
+    """
+    # Generate uniform random numbers between 0 and 1
+    u = np.random.uniform(0, 1, size)
+
+    # Power law sampling for dt ~ dt^(-alpha)
+    dt = (min_dt**(1 - alpha) + u * (max_dt**(1 - alpha) - min_dt**(1 - alpha)))**(1 / (1 - alpha))
+
+    return dt
+
+def generate_signal_events(selected_peak, num_events, alpha, min_dt=5e6, max_dt=4e8):
+    """
+    Generates signal events based on the power law rate A * dt**(-alpha).
+    
+    Args:
+        selected_peak (pd.Series): The row from selected_peaks representing the chosen event.
+        num_events (int): Number of signal events to generate.
+        A (float): The scaling factor for event rate.
+        alpha (float): The exponent for the power law distribution.
+        min_dt (float): The minimum time difference (to avoid division by zero).
+        max_dt (float): The maximum time difference.
+        
+    Returns:
+        pd.DataFrame: Generated signal events with 'x', 'y', and 'time'.
+    """
+    # Create an empty DataFrame for signal events
+    signal_events = pd.DataFrame()
+
+    # Generate power-law-distributed time differences
+    dt = generate_powerlaw_dt(min_dt, max_dt, alpha, num_events)
+    times = selected_peak['time'] + dt
+
+    # Generate random x and y values for the signal events
+    x_values = np.random.uniform(min(SE_data['x']), max(SE_data['x']), size=num_events)
+    y_values = np.random.uniform(min(SE_data['y']), max(SE_data['y']), size=num_events)
+
+    signal_events['x'] = x_values
+    signal_events['y'] = y_values
+    signal_events['time'] = times
+    signal_events['sprinkled'] = True
+
+    return signal_events
+
+num_events = 1#round(np.sum((np.array(SE_dts)>5e6)&(np.array(SE_dts)<4e8))/(2*len(selected_peaks)))
+
+all_signal_events = pd.DataFrame(columns=['x', 'y', 'time'])
+
+# Loop through each row in selected_peaks
+for _, selected_peak in selected_peaks.iterrows():
+    # Generate signal events for the current selected peak
+    signal_events = generate_signal_events(selected_peak, num_events, alpha=0.7)
+    all_signal_events = pd.concat([all_signal_events, signal_events], ignore_index=True)
+
+# Combine with data_SE
+combined_data = pd.concat([SE_data, all_signal_events], ignore_index=True)
+
+from sklearn.cluster import DBSCAN
+from sklearn.preprocessing import StandardScaler
+
+data_for_clustering = combined_data[['x', 'y','time']].values
+scaler = StandardScaler()
+data_normalized = scaler.fit_transform(data_for_clustering)
+eps = 0.02
+clustering = DBSCAN(eps=eps, min_samples=3, metric='euclidean').fit(data_normalized)
+combined_data['cluster'] = clustering.labels_
+combined_data = combined_data[combined_data['cluster'] == -1]
+remaining_signal_events = combined_data[combined_data['sprinkled'].notna()]  # Only the introduced signal events have 'rate' values
+acceptance = len(remaining_signal_events)/len(all_signal_events)
+SE_data = combined_data[combined_data['sprinkled'].isna()]
+SE_data = SE_data.drop(columns=['cluster'])
+
 SE_times, SE_dts, SE_primary_areas, SE_primary_times = plf.get_lone_hit_times(selected_peaks, selected_peaks['window_lengths'].values , SE_data)
 
 sorted_windows = np.sort(selected_peaks['window_lengths'].values)
@@ -99,13 +181,12 @@ histogram_bins = np.logspace(-6, 0.5, 50)
 SE_weights = weights[np.searchsorted(window_bins_edges, np.array(SE_dts)*1e-9, side='right')-1]/np.array(SE_primary_areas)
 weighted_hist_SE, hist_errs_SE = plf.histogram_with_weights(np.array(SE_dts), np.array(SE_weights), histogram_bins)
 start_bin = 28
-end_bin = 50 
+end_bin = 43
 SE_rate = np.sum(weighted_hist_SE[start_bin:end_bin]*np.diff(histogram_bins)[start_bin:end_bin])
 SE_rate_var = (np.sum((hist_errs_SE[start_bin:end_bin]*np.diff(histogram_bins)[start_bin:end_bin])**2))
 
 
 matched_SE = SE_data.query('time in @SE_times')
-del SE_data
 position_difference = np.zeros((len(SE_times), 2))
 primary_positions = np.zeros((len(SE_times), 2))
 for i in trange(len(SE_times)):
@@ -138,11 +219,9 @@ SE_hist, SE_errs = plf.histogram_with_weights(np.array(SE_dts)[area_cut_bool], n
 uncorrelated_SE_rate = np.sum(SE_hist[start_bin:end_bin]*np.diff(histogram_bins)[start_bin:end_bin])
 uncorrelated_SE_rate_var = (np.sum((SE_errs[start_bin:end_bin]*np.diff(histogram_bins)[start_bin:end_bin])**2))
 
-
-print(ionization_rate_mean, SE_rate, SE_rate_var, uncorrelated_SE_rate, uncorrelated_SE_rate_var)
 import csv
 file_path = 'SE_info.csv'
 # Write or append data to the CSV file
 with open(file_path, mode='a', newline='') as file:
-    writer = csv.writer(file)   
-    writer.writerow([run, ionization_rate_mean, SE_rate, SE_rate_var, uncorrelated_SE_rate, uncorrelated_SE_rate_var])
+    writer = csv.writer(file)
+    writer.writerow([run, ionization_rate_mean, acceptance, SE_rate, SE_rate_var, uncorrelated_SE_rate, uncorrelated_SE_rate_var])
