@@ -7,7 +7,10 @@ st.storage.append(strax.DataDirectory("/project/lgrandi/xenonnt/processed/", rea
 
 from tqdm import trange
 import numpy as np
+import pandas as pd
 import sys
+import os
+
 run = sys.argv[1]
 #run = '053502'
 
@@ -18,20 +21,6 @@ overlap_cut_ratio = 0.1 #peaks are only accepted if all previous primary peaks m
 overlap_cut_max_times = 30 #number of time constants to consider previous peaks for overlap cut
 max_drift_time_s = 2.5e-3 #s
 SE_gain = 31 #https://xe1t-wiki.lngs.infn.it/doku.php?id=xenon:abby:segain_evolution
-
-data_peaks = st.get_df(run, ('peak_basics', 'peak_positions'))
-primaries = data_peaks.query('area > @min_primary_size_PE') 
-
-del data_peaks
-
-#overlap cut
-rejected_peak_times = plf.peaks_to_reject(primaries['area'].values, primaries['time'].values, overlap_cut_time_s=overlap_cut_time_s, overlap_cut_max_times=overlap_cut_max_times, overlap_cut_ratio=overlap_cut_ratio)
-print("whatsup")
-
-selected_peaks = primaries.query('time not in @rejected_peak_times')
- 
-
-selected_peaks = selected_peaks[selected_peaks['type']==2]
 
 def lower_boundary(area):
     # Create an array to store the results
@@ -69,14 +58,36 @@ def upper_boundary(area):
 
     return cs2_area_fraction_top
 
-selected_peaks = selected_peaks[selected_peaks['area_fraction_top']<upper_boundary(selected_peaks['area'])]
-selected_peaks = selected_peaks[selected_peaks['area_fraction_top']>lower_boundary(selected_peaks['area'])]
+file_path = f'/scratch/midway3/astroriya/primaries/{run}.pkl'
 
-selected_peaks['window_lengths'] = plf.get_windows(primaries, selected_peaks, overlap_cut_time_s=overlap_cut_time_s, overlap_cut_max_times=overlap_cut_max_times, overlap_cut_ratio=overlap_cut_ratio)
-del primaries
-selected_peaks.to_pickle(f'/scratch/midway3/astroriya/primaries/{run}.pkl')
+if os.path.exists(file_path):
+    print("File exists.")
+    selected_peaks = pd.read_pickle(f'/scratch/midway3/astroriya/primaries/{run}.pkl')
+else:
+    print("File does not exist.")
+    data_peaks = st.get_df(run, ('peak_basics', 'peak_positions_mlp'))
+    primaries = data_peaks.query('area > @min_primary_size_PE') 
+    
+    del data_peaks
+    
+    #overlap cut
+    rejected_peak_times = plf.peaks_to_reject(primaries['area'].values, primaries['time'].values, overlap_cut_time_s=overlap_cut_time_s, overlap_cut_max_times=overlap_cut_max_times, overlap_cut_ratio=overlap_cut_ratio)
+    
+    selected_peaks = primaries.query('time not in @rejected_peak_times')
+     
+    
+    selected_peaks = selected_peaks[selected_peaks['type']==2]
+    
+    
+    
+    selected_peaks = selected_peaks[selected_peaks['area_fraction_top']<upper_boundary(selected_peaks['area'])]
+    selected_peaks = selected_peaks[selected_peaks['area_fraction_top']>lower_boundary(selected_peaks['area'])]
+    
+    selected_peaks['window_lengths'] = plf.get_windows(primaries, selected_peaks, overlap_cut_time_s=overlap_cut_time_s, overlap_cut_max_times=overlap_cut_max_times, overlap_cut_ratio=overlap_cut_ratio)
+    del primaries
+    selected_peaks.to_pickle(f'/scratch/midway3/astroriya/primaries/{run}.pkl')
 
-data_peaks = st.get_df(run, ('peak_basics', 'peak_positions'))
+data_peaks = st.get_df(run, ('peak_basics', 'peak_positions_mlp'))
 S2_peaks = data_peaks[data_peaks['type']==2]
 del data_peaks
 S2_peaks = S2_peaks[S2_peaks['tight_coincidence']>=2]
