@@ -1,17 +1,18 @@
-import cutax
-import strax
-st = cutax.xenonnt_offline()
-st.storage.append(strax.DataDirectory("/project2/lgrandi/xenonnt/processed/", readonly=True))
-st.storage.append(strax.DataDirectory("/project/lgrandi/xenonnt/processed/", readonly=True))
-
 import numpy as np
 from tqdm import tqdm
 import sys
 run = sys.argv[1]
+
+import cutax
+import strax
+st = cutax.xenonnt_online()
+st.storage.append(strax.DataDirectory("/scratch/midway3/astroriya/lonehits/", readonly=True))
+
+
 data_lh = st.get_df(run, ('lone_hits'), keep_columns = ('time', 'channel'))
 
 import pandas as pd
-selected_peaks = pd.read_pickle(f'/dali/lgrandi/astroriya/primaries/{run}.pkl')
+selected_peaks = pd.read_pickle(f'/scratch/midway3/astroriya/primaries/{run}.pkl')
 
 import power_law_functions as plf
 def get_lone_hit_times(selected_peaks, window_lengths, data_lone_hits):
@@ -58,6 +59,11 @@ def get_lone_hit_times(selected_peaks, window_lengths, data_lone_hits):
         i+=1
     return lone_hit_times, lone_hit_dts, lone_hit_channel, primary_index
 
+channel_counts = data_lh['channel'].value_counts()
+threshold = channel_counts.mean() + 2 * channel_counts.std()  # Modify multiplier as needed
+valid_channels = channel_counts[channel_counts <= threshold].index
+data_lh = data_lh[data_lh['channel'].isin(valid_channels)]
+
 lone_hit_times, lone_hit_dts, lone_hit_channel, primary_index = get_lone_hit_times(selected_peaks, selected_peaks['window_lengths'].values, data_lh)
 del data_lh
 df_sp = pd.DataFrame({
@@ -73,7 +79,7 @@ number_of_overlapping_bins = np.arange(len(window_bins_edges)-1, 0, -1)
 weights = 1/number_of_overlapping_bins #scale bins
 histogram_bins = np.logspace(-6, 0.5, 50)
 
-PMT_position = pd.read_csv('/dali/lgrandi/astroriya/pmt_positions_xenonnt.csv')
+PMT_position = pd.read_csv('/scratch/midway3/astroriya/primaries/pmt_positions_xenonnt.csv')
 df_sp['x'] = df_sp['lone_hit_channel'].map(PMT_position.set_index('i')['x'])
 df_sp['y'] = df_sp['lone_hit_channel'].map(PMT_position.set_index('i')['y'])
 df_sp['array'] = df_sp['lone_hit_channel'].map(PMT_position.set_index('i')['array'])
@@ -124,5 +130,5 @@ file_path = 'LH_info.csv'
 with open(file_path, mode='a', newline='') as file:
     writer = csv.writer(file)   
     
-    writer.writerow([run, top_lh_rate, top_lh_rate_var, uncorrelated_lh_rate, uncorrelated_lh_rate_var, bottom_lh_rate, bottom_lh_rate_var])
+    writer.writerow([run, threshold, top_lh_rate, top_lh_rate_var, uncorrelated_lh_rate, uncorrelated_lh_rate_var, bottom_lh_rate, bottom_lh_rate_var])
 
