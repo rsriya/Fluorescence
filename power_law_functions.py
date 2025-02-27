@@ -108,50 +108,6 @@ def lone_hit_window_loop_func(data_lone_hits_times, start_time_loop, N_lh, end_t
         end_index += 1000
     return start_index, end_index
 
-def get_lone_hit_times(selected_peaks, window_lengths, data_lone_hits):
-    """
-    Extracts the lone hit times, time differences and primary areas for a given set
-    of selected peaks and associated window lengths.
-
-    Args:
-    - selected_peaks (pandas.DataFrame): a DataFrame with peak information, including
-        the 'time' and 'area' columns.
-    - window_lengths (list-like): a list or array of window lengths, in seconds,
-        associated with each peak.
-    - data_lone_hits (pandas.DataFrame): a DataFrame with lone hit information, 
-        including the 'time' column.
-
-    Returns:
-    - tuple: a tuple of three arrays, containing the lone hit times (in seconds), 
-        the time differences with respect to the start of each peak window (in seconds),
-        and the primary areas associated with each peak. 
-
-    This function works by iterating over the selected peaks and their associated
-    windows, finding all lone hits that fall within each window and extracting their 
-    times, time differences and primary areas. The output is returned as a tuple of 
-    arrays, with one entry per lone hit found across all windows.
-    """
-    i = 0
-    lone_hit_times = []
-    lone_hit_dts = []
-    lone_hit_primary_areas = []
-    lone_hit_primary_times = []
-    N_lh = len(data_lone_hits)
-    data_lone_hits_times = data_lone_hits['time'].values
-    for row in tqdm(selected_peaks.iterrows(), total=len(selected_peaks)):
-        start_time_loop = row[1]['time']
-        end_time_loop = row[1]['time'] + window_lengths[i]*1e9
-        start_index = 0
-        end_index = 0
-        start_index, end_index = lone_hit_window_loop_func(data_lone_hits_times, start_time_loop, N_lh, end_time_loop, start_index, end_index)
-        this_loop_lonehits = data_lone_hits.iloc[start_index:end_index].query('time < @end_time_loop and time > @start_time_loop')
-        lone_hit_times.extend(this_loop_lonehits['time'].values)
-        lone_hit_dts.extend(this_loop_lonehits['time'].values - start_time_loop)
-        lone_hit_primary_areas.extend([row[1]['area']]*len(this_loop_lonehits))
-        lone_hit_primary_times.extend([start_time_loop]*len(this_loop_lonehits))
-        i+=1
-    return lone_hit_times, lone_hit_dts, lone_hit_primary_areas, lone_hit_primary_times
-
 @njit
 def histogram_with_weights_innerloop(unique_weights, weights_in_bin):
     poisson_numbers = []
@@ -216,14 +172,5 @@ def measure_photoionization_rate_within_drift_time(SE_gain, max_drift_time_s, pr
         start_time = row[1]['time']
         end_time = start_time + max_drift_time_s*1e9
         summed_area = S2_peaks.query('time > @start_time and time < @end_time')['area'].sum()
-        photoionization_frac.append(summed_area/row[1]['area'])
+        photoionization_frac.append(summed_area/row[1]['area']/SE_gain)
     return photoionization_frac
-
-def fit_photoionization_rate(SE_gain, lone_hit_hist, lone_hit_errs, SE_hist, SE_errs, start_bin, hist_bins):
-    lone_hit_rate = np.sum(lone_hit_hist[start_bin:]*np.diff(hist_bins)[start_bin:])
-    lone_hit_rate_var = (np.sum((lone_hit_errs[start_bin:]*np.diff(hist_bins)[start_bin:])**2))
-    SE_rate = np.sum(SE_hist[start_bin:]*np.diff(hist_bins)[start_bin:])
-    SE_rate_var = (np.sum((SE_errs[start_bin:]*np.diff(hist_bins)[start_bin:])**2))
-    best_fit_ratio = SE_rate/lone_hit_rate*SE_gain
-    err = np.sqrt(SE_rate_var/(lone_hit_rate*SE_gain)**2 + lone_hit_rate_var*(SE_rate/(lone_hit_rate**2)*SE_gain)**2)
-    return best_fit_ratio, err
