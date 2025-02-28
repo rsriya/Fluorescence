@@ -26,7 +26,7 @@ del data_peaks
 S2_peaks = S2_peaks[S2_peaks['tight_coincidence']>=2]
 ionization_rates = plf.measure_photoionization_rate_within_drift_time(SE_gain, max_drift_time_s, selected_peaks.query('window_lengths > @max_drift_time_s'), S2_peaks)
 ionization_rate_mean = np.mean(ionization_rates)
-s2_area_cut = [15,53]
+s2_area_cut = [15,45]
 aft_cut = [0.40, 0.99]
 width_cut = [90, 650]
 SE_data = S2_peaks.query('area < @s2_area_cut[1] and area > @s2_area_cut[0] and area_fraction_top < @aft_cut[1] and area_fraction_top > @aft_cut[0] and range_50p_area < @width_cut[1] and range_50p_area > @width_cut[0]')
