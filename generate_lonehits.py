@@ -60,8 +60,13 @@ def get_lone_hit_times(selected_peaks, window_lengths, data_lone_hits):
     return lone_hit_times, lone_hit_dts, lone_hit_channel, primary_index
 
 channel_counts = data_lh['channel'].value_counts()
-threshold = channel_counts.mean() + 2 * channel_counts.std()  # Modify multiplier as needed
-valid_channels = channel_counts[channel_counts <= threshold].index
+channel_counts_top = channel_counts[channel_counts.index < 253]
+threshold_top = 2*channel_counts_top.median()  # Modify multiplier as needed
+channel_counts_bottom = channel_counts[channel_counts.index >= 253]
+threshold_bottom = 2*channel_counts_bottom.median()   # Modify multiplier as needed
+valid_channels_top = channel_counts_top[channel_counts_top <= threshold_top].index
+valid_channels_bottom = channel_counts_bottom[channel_counts_bottom <= threshold_bottom].index
+valid_channels = valid_channels_top.union(valid_channels_bottom)
 data_lh = data_lh[data_lh['channel'].isin(valid_channels)]
 
 lone_hit_times, lone_hit_dts, lone_hit_channel, primary_index = get_lone_hit_times(selected_peaks, selected_peaks['window_lengths'].values, data_lh)
@@ -77,8 +82,8 @@ sorted_windows = np.sort(selected_peaks['window_lengths'].values) #sort window l
 window_bins_edges = np.concatenate([[0], sorted_windows]) #define windows bins
 number_of_overlapping_bins = np.arange(len(window_bins_edges)-1, 0, -1) 
 weights = 1/number_of_overlapping_bins #scale bins
-histogram_bins = np.logspace(-6, 0.5, 50)
-
+histogram_bins = np.logspace(-6, 0.5, 50)    
+    
 PMT_position = pd.read_csv('/scratch/midway3/astroriya/primaries/pmt_positions_xenonnt.csv')
 df_sp['x'] = df_sp['lone_hit_channel'].map(PMT_position.set_index('i')['x'])
 df_sp['y'] = df_sp['lone_hit_channel'].map(PMT_position.set_index('i')['y'])
@@ -88,7 +93,7 @@ df_sp_top = df_sp[df_sp['array']=='top']
 df_sp_bottom = df_sp[df_sp['array']=='bottom']
 
 start_bin = 28
-end_bin = 50
+end_bin = 40
 top_lone_hit_weights = weights[np.searchsorted(window_bins_edges, np.array(df_sp_top['dt_primary'])*1e-9, side='right')-1]/np.array(df_sp_top['primary_area'])
 weighted_hist, hist_errs = plf.histogram_with_weights(np.array(df_sp_top['dt_primary']), np.array(top_lone_hit_weights), histogram_bins)
 top_lh_rate = np.sum(weighted_hist[start_bin:end_bin]*np.diff(histogram_bins)[start_bin:end_bin])
@@ -99,8 +104,8 @@ weighted_hist, hist_errs = plf.histogram_with_weights(np.array(df_sp_bottom['dt_
 bottom_lh_rate = np.sum(weighted_hist[start_bin:end_bin]*np.diff(histogram_bins)[start_bin:end_bin])
 bottom_lh_rate_var = (np.sum((hist_errs[start_bin:end_bin]*np.diff(histogram_bins)[start_bin:end_bin])**2))
 
-df_sp['primary_x'] = df_sp['primary_index'].apply(lambda idx: selected_peaks.loc[idx, 'x'])
-df_sp['primary_y'] = df_sp['primary_index'].apply(lambda idx: selected_peaks.loc[idx, 'y'])
+df_sp['primary_x'] = df_sp['primary_index'].apply(lambda idx: selected_peaks.loc[idx, 'x_mlp'])
+df_sp['primary_y'] = df_sp['primary_index'].apply(lambda idx: selected_peaks.loc[idx, 'y_mlp'])
 df_sp['primary_position'] = np.sqrt(df_sp['primary_x']**2 + df_sp['primary_y']**2)
 df_sp['dr'] = np.sqrt((df_sp['x']-df_sp['primary_x'])**2+(df_sp['y']-df_sp['primary_y'])**2)
 
@@ -130,5 +135,4 @@ file_path = 'LH_info.csv'
 with open(file_path, mode='a', newline='') as file:
     writer = csv.writer(file)   
     
-    writer.writerow([run, threshold, top_lh_rate, top_lh_rate_var, uncorrelated_lh_rate, uncorrelated_lh_rate_var, bottom_lh_rate, bottom_lh_rate_var])
-
+    writer.writerow([run, threshold_top, threshold_bottom, top_lh_rate, top_lh_rate_var, uncorrelated_lh_rate, uncorrelated_lh_rate_var, bottom_lh_rate, bottom_lh_rate_var])
